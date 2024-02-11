@@ -25,6 +25,11 @@
 - how to make the update form match the serializer
 - info on how to use dot notation to traverse related fields in databases in serializers
 
+### [5. Commit 5:](#commit-5)
+- serializing new fields onto a view using serializer method fields
+- adding authentication / logging in and out
+- adding custom authentication and restrictions to data
+
 
 <hr>
 
@@ -674,3 +679,207 @@ steps:
                     return Response(serializer.data)
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         ```
+<br>
+<hr>
+
+## Commit 5:
+
+## Authentication, authorization and serializer method fields
+##### https://youtu.be/bDfQdBL70oM
+
+This section covers:
+- add in-browser login/logout feature
+    - > make it possible to log in and log out of our API in-browser interface
+- write custom permissions
+    - > write the IsOwnerOrReadOnly permission
+- add an extra field to an existing serailizer
+    - > add an extra field to our Profile Serializer
+
+> We’ll do all this so that only the owner of  a profile can edit it and not just any user.
+
+
+before getting started on the steps above, create another superuser, so that there are 2 accounts to work with:
+- in the terminal:
+    1. `python3 manage.py createsuperuser`
+    2. follow terminal prompts
+
+user created:
+
+| Username | Password |
+| -------: | :------- |
+| admin2   | guest    |
+
+
+with that done, begin creating the login/logout views:
+
+These come as part of the native REST framework package:
+1. add a new path to `drf_api/urls.py` that takes `api-auth/` as the path name, and uses the `include` import to include `'rest_framework.urls'`
+    -   ```py
+        from django.contrib import admin
+        from django.urls import path, include
+
+        urlpatterns = [
+            path('admin/', admin.site.urls),
+            path('api-auth/', include('rest_framework.urls')),
+            path('', include('profiles.urls')),
+        ]
+        ```
+2. run the server and check to see if the new path works:
+    - on the `/profiles/` page, there should now be a dorpdown in the top right of the page allowin users to logout/login
+
+however, regardless of who is logged in, any user can update a record, which is not ideal.
+
+> Luckily, not only does the rest framework come with a set of commonly used permissions, like `AllowAny`, `IsAuthenticated`, `IsAdminUser`, `IsAuthenticatedOrReadOnly` and more; it also makes it very easy to write custom permissions (`BasePermission` - used to write custom permissions)
+
+
+### Creating a Custom permission
+
+requirements for a custom permission:
+1. > It has to be an object-level permission, which means we’ll have to check a Profile model instance object and see if its ‘owner’ field is  pointing to the same user who’s making the request.
+2. > If the user is requesting read-only access using the so-called safe http  methods, like GET, return True.
+3. > If the user is making a PUT or PATCH request, return True only if that user owns the profile object.
+
+**steps:**
+1. create a new file in `drf_api` called `permissions.py`
+2. at the top of the file, import `permissions` from `rest_framework`
+    - `from rest_framework import permissions`
+3. then, create a new class called `IsOwnerOrReadOnly` that inherits from `permisssions.BasePermission`
+    - `class IsOwnerOrReadOnly(permissions.BasePermissions):`
+4. overwrite the pre-existing function `has_object_permission` supplied by the inherited import. it takes 4 arguments `(self, request, view, obj)`
+    - this is done by just writing it as a new function
+5. in the function:
+    - add an `if` statement that checks if the `method` in the `request` argument is `in` the `SAFE_METHODS` of `permissions`. If it is, `return` a value of `True`
+        - this checks to see if the user accessing the record is only requetsing Read-Only access, and if they are, the `True` result is returned
+    - directly under it, in lieu of an `else` statement, add a `return` statement that has a conditional checking that `owner` in the `obj` argument matches the `request`ing `user`
+        - this checks to see if the user owns that record and will return a `True` value if they match.
+    -   ```py
+        class IsOwnerOrReadOnly(permissions.BasePermisssions):
+            def has_object_permission(self, request, view, obj):
+                if request.method in permissions.SAFE_METHODS:
+                    return True
+                return obj.owner == request.user
+        ```
+6. with the permission written, it can now be used in `views.py`, import it at the top of the `views.py file`:
+    - `from drf_api.permissions import IsOwnerOrReadOnly`
+7. now that it is imported, permissions classes can be added to views by using the variable `permission_classes` which passes an array of all of the necessary permissions. In this case, there is only one, so pass it in as a single entry within an array/list. Add the following variable to the `ProfileDetail` view, below the `serializer_class` variable:
+    - `permission_classes = [IsOwnerOrReadOnly]`
+8. next, inside the `ProfileDetail` view, the `get_object` function now needs to be amended to make the function check the permissions of the accessing user:
+    - > if the user doesn’t own the profile, it will throw the 403 Forbidden  error and not return the instance.
+    - in the `try` statement, beneath the profile variable, run the function `check_object_permissions` on `self` with the arguments of `request` made by `self` and the `profile` variable established directly above it
+        - `self.check_object_permissions(self.request, profile)`
+    -   ```py
+        class ProfileDetail(APIView):
+        # establish the form structure for the data
+        serializer_class = ProfileSerializer
+        # establish the permissions for the data
+        permission_classes = [IsOwnerOrReadOnly]
+
+        def get_object(self, pk):
+            """
+            the function that checks the validity
+            of a profile request, returns an error if
+            invalid
+            """
+            try:
+                profile = Profile.objects.get(pk=pk)
+                self.check_object_permissions(self.request, profile)
+                return profile
+            except Profile.DoesNotExist:
+                raise Http404
+        def get(self, request, pk):
+        ```
+
+> now, if we don’t own the profile, we aren’t allowed to make changes to it.
+
+
+### adding custom fields depending on the authentication of the user using a serializer
+
+1. go to `profiles/serializers.py`
+    - > We’re going to use the  SerializerMethodField, which is read-only. It gets its value by calling a method on the serializer class, named `get_<field_name>` (in this case, it will be `get_is_owner`).
+2. in the `ProfileSerializer` class, add a new variable called `is_owner` under the `owner` variable
+    - this variable will house the `SerializerMethodField` from the `serializers` import with no parameters.
+        - `is_owner = serializers.SerializerMethodField()`
+            - `SerializerMethodField()` is read-only
+3. this new variable is then run like a function by prefixing the variable name with `get_` and defining it like a function, it will take `self` and `obj` as parameters
+
+> we’d like to do something similar to what we did in our permission file, that is: check if request.user is the same as the object's owner. But there’s a problem. The currently logged in user is a part of the request object.
+
+This information isn't currently directly available to the serializer in this file. So it needs to be passed into the serializer from `views.py`
+
+> inside views.py, we’ll have to pass it in as part of the context object when we call our ProfileSerializer inside our view. We’ll have to do it every time we call it.
+
+4. first, add a new variable into the `get_is_owner` function called `request`, its value should be `self`'s `context`, where it targets the array value of `'request'` within itself
+    - this `context` needs to be created as a parameter when the serializer is called in `views.py`, but this can be added after the rest of the function is built to save jumping back and forth
+5. with the `request` variable now housing the `context`ual `request` from the `user`, this can be checked against the target object to see if the `user` matches the `obj`'s `owner`
+    - under the `request` write a `return` statement that has a conditional statement to reflect this:
+        -   ```py
+            def get_is_owner(self, obj):
+                request = self.context['request']
+                return request.user == obj.owner
+            ```
+6. now, as mentioned before, the request information needs to be sent in the `context` value from `views.py` every time this serializer is called. to do that, go to `views.py`
+7. wherever `serializer = ProfileSerializer(...)` is classed as a variable, a parameter of `context` needs to be added to the parameters, its value needs to be an object KVP with a key of `'request'` with the value of `request`
+    - `serializer = ProfileSerializer(profiles, many=True, context={'request': request})` (for accessing multiple records)
+    - `serializer = ProfileSerializer(profiles, context={'request': request})` (for accessing a single record)
+    - example:
+        -   ```py
+            def put(self, request, pk):
+                """
+                updates a retreived profile with data receieved
+                from a request via a form contextualised by
+                serializer_class at the top of this view
+                handles BAD_REQUEST errors too
+                """
+                profile = self.get_object(pk)
+                # serailizer updated below
+                serializer = ProfileSerializer(
+                    profile,
+                    data=request.data,
+                    context={'request': request}
+                )
+                if serializer.is_valid():
+                    serializer.save()
+                    return Response(serializer.data)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            ```
+8. Lastly, include the new `'is_owner'` field in the `fields` array listed in the `Meta` class of `ProfileSerializer`
+9. test that it all works
+
+code should look like this:
+```py
+from rest_framework import serializers
+from .models import Profile
+
+class ProfileSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    is_owner = serializers.SerializerMethodField()
+        # this variable above is used to house 
+        # the requisite serializer it is called 
+        # as a function below by prefixing the variable's 
+        # name with 'get_'
+
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    class Meta:
+        model = Profile
+        fields = [
+            'id',
+            'owner',
+            'created_at',
+            'updated_at',
+            'name',
+            'content',
+            'image',
+            'is_owner'
+        ]
+```
+
+<br>
+<hr>

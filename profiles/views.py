@@ -3,6 +3,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Profile
 from .serializers import ProfileSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
 
 # Create your views here.
 class ProfileList(APIView):
@@ -12,13 +13,15 @@ class ProfileList(APIView):
         # serializes the update form
     def get(self, request):
         profiles = Profile.objects.all()
-        serializer = ProfileSerializer(profiles, many=True)
+        serializer = ProfileSerializer(profiles, many=True, context={'request': request})
         return Response(serializer.data)
 
 
 class ProfileDetail(APIView):
     # establish the form structure for the data
     serializer_class = ProfileSerializer
+    # establish the permissions for the data
+    permission_classes = [IsOwnerOrReadOnly]
 
     def get_object(self, pk):
         """
@@ -28,6 +31,7 @@ class ProfileDetail(APIView):
         """
         try:
             profile = Profile.objects.get(pk=pk)
+            self.check_object_permissions(self.request, profile)
             return profile
         except Profile.DoesNotExist:
             raise Http404
@@ -37,7 +41,7 @@ class ProfileDetail(APIView):
         serializes it using the ProfileSerializer
         """
         profile = self.get_object(pk)
-        serializer = ProfileSerializer(profile)
+        serializer = ProfileSerializer(profile, context={'request': request})
         return Response(serializer.data)
 
     def put(self, request, pk):
@@ -48,7 +52,7 @@ class ProfileDetail(APIView):
         handles BAD_REQUEST errors too
         """
         profile = self.get_object(pk)
-        serializer = ProfileSerializer(profile, data=request.data)
+        serializer = ProfileSerializer(profile, data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
