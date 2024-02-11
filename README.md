@@ -20,6 +20,10 @@
 - install rest_framework
 
 ### [4. Commit 4:](#commit-4)
+- how to manually add a put request on a view
+- add a detail view to the profiles app
+- how to make the update form match the serializer
+- info on how to use dot notation to traverse related fields in databases in serializers
 
 
 <hr>
@@ -139,7 +143,8 @@ INSTALLED_APPS = [
             'cloudinary_storage',
             'django.contrib.staticfiles',
             'cloudinary',
-            'profiles'
+
+            'profiles',
         ]
         ```
 3. now, in the newly created `models.py` inside `profiles.py` add a new import at the top of the file:
@@ -398,3 +403,274 @@ How Model Serializers work:
     - update `requirements.txt` in the terminal
         - `pip3 freeze > requirements.txt`
 
+<br>
+<hr>
+
+## Commit 4
+
+## Populating Serializer ReadOnly Field using dot notation
+
+- The `source` attribute and its string value explained
+- how to manipulate ReadOnlyFields (using dot notation)
+    - targeting subfields within data models / tables
+
+Entity relationship between the `User` table that comes with Django, and the `Profile` table created in this project:
+
+> The User and Profile tables are connected through the owner OneToOne field.
+
+> By default, the owner field always  returns the user’s id value.
+
+|       US | ER      | < - > |     PRO | FILE     |
+| -------: | :------ | :---: | ------: | :------- |
+|          |         |       | id      | BigAuto  |
+|       id | BigAuto |  -- > | owner   | OneToOne |
+| username | Char    |       | name    | Char     |
+| password | Char    |       | content | Text     |
+|          |         |       | image   | Image    |
+
+> For readability’s sake, however, every time we fetch a profile, it makes sense to overwrite this default behaviour  and retrieve the user’s username instead.  
+
+|        US|ER       | < - > |      PRO|FILE      |
+| -------: | :------ | :---: | ------: | :------- |
+|       id | BigAuto |       | id      | BigAuto  |
+| username | Char    |  -- > | owner   | OneToOne |
+| password | Char    |       | name    | Char     |
+|          |         |       | content | Text     |
+|          |         |       | image   | Image    |
+
+> To access this field, we use dot notation.
+
+**inside serializers.py, in the `ProfileSerializer` class**
+```py
+owner = serializers.ReadOnlyField(
+    source='owner.username'
+)
+```
+> In this case, the “owner” in “owner.username”  stands for the user instance, so any time we want to access a field we simply use dot notation.  
+
+basically `owner` can act as a direct call to that specific user, and using dot notation from `owner` would be the same as `User.AWAYTOIDENTIFYASPECIFICUSER.WHATEVERFIELD`
+
+Now, lets add a 3rd table for `posts`
+
+|        US|ER       | < - > |       PO|ST           | < - > |      PRO|FILE      |
+| -------: | :------ | :---: | ------: | :---------- | :---: | ------: | :------- |
+|       id | BigAuto |       |      id | BigAuto     |       | id      | BigAuto  |
+| username | Char    | < - > |   owner | Foreign Key | < - > | owner   | OneToOne |
+| password | Char    |       |   title | Char        |       | name    | Char     |
+|          |         |       | content | Text        |       | content | Text     |
+|          |         |       |   image | Image       |       | image   | Image    |
+
+> Let’s assume we are working  on PostSerializer instead of ProfileSerializer like we did in the previous video.
+
+In these tables, `Post.owner` is a `ForeignKey` field, this means if the there was a serializer serializing information from `Post`, the name of a user could be found by dot notation, by going through `owner`(which is targeting the user through it being na instance) then `Profile`, so the dot notation would be `owner.Profile.name`.
+
+```py
+class PostSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ReadOnlyField(
+        source='owner.profile.name'
+    )
+```
+
+> One last challenge. Let’s say we wanted to add the profile image field to each post.
+
+|        US|ER       | < - > |       PO|ST           | < - > |      PRO|FILE      | subfields |
+| -------: | :------ | :---: | ------: | :---------- | :---: | ------: | :------- | :-------: |
+|       id | BigAuto |       |      id | BigAuto     |       | id      | BigAuto  |           |
+| username | Char    | < - > |   owner | Foreign Key | < - > | owner   | OneToOne |           |
+| password | Char    |       |   title | Char        |       | name    | Char     |           |
+|          |         |       | content | Text        |       | content | Text     |           |
+|          |         |       |   image | Image       |       | image   | Image    | url       |
+
+Because the `profile.image` field comtains a "subfield" housing the `url` for the image, that needs to be targeted directly in the dot notation.
+
+```py
+class PostSerializer(serializers.ModelSerializer):
+    profile_image = serializers.ReadOnlyField(
+        source='owner.profile.image.url'
+    )
+```
+
+______________________________________________________________________
+
+## GET and PUT requests (Profile Details view)
+
+Profiles CRUD Table:
+> Let’s have a look at our CRUD table. It shows what kind of HTTP request our users have to make and to which URL in order to list all profiles, create, read, update or delete the profile. 
+
+| HTTP           | URI           | CRUD Operation                                                                   | View Name         |
+| :------------: | :-----------: | :------------------------------------------------------------------------------: | :---------------: |
+| **a**.GET / **b**.POST | /profiles     | **a**.list all profiles / **b**.create a profile                         | LIST              |
+| **c**.GET / **d**.PUT / **e**.DELETE | /profiles/:id | **c**.retrieve a profile by id / **d**.update a profile by id / **e**.delete a profile by id | DETAIL           |
+
+quick recap reference to the ProfileList view to help write the next code:
+```py
+class ProfileList(APIView):
+    """
+    List All profiles
+    No Create view (POST method), as profile creation is
+    handles by Django signals
+    """
+    def get(self, request):
+        profiles = profile.objects.all()
+        serializer = ProfileSerializer(profles, many=True)
+        return Response(serializer.data)
+```
+while this class handles `GET`ting a list of all profiles, it doesn't `POST` data/create new profiles.
+This is because profile creation is handled by [django signals](#django-signals), referenced earlier.
+
+there is still no: 
+- `GET` method to retreive a specific profile by id
+- view or methods to utulise `PUT`, which updates data (a profile) by id
+
+### creating the `ProfileDetail` view
+
+the view needs to:
+1. fetch the profile by id
+2. serialize the profile model instance
+3. return serializer data in the response
+    - ([serializer](#rest-framework-serializers) needed to turn the data into JSON format)
+
+
+#### Retreiving an existing profile
+steps:
+1. Go to `views.py`
+2. create a new class called `ProfileDetail` that inherits from the [imported `APIView`](#rest-framework-serializers)
+3. create a `get_object` request that takes `self` and `pk` (PrimaryKey) as arguments
+    - this function not only has to try and retreive a data record by the parameters above, it also needs to handle the instance of when a record doesnt exist
+    - because of this, add an except/exception block by using the `try` keyword
+    - inside the block, add a variable called profile that queries the `objects` of `Profile` to `get` a record where `pk` = the `pk` entered in the request.
+    -   ```py
+        class ProfileDetail(APIView):
+            def get_object(self, pk):
+                try:
+                    profile = Profile.objects.get(pk=pk)
+                    return profile
+        ```
+    - this handles the instance of where the record exists, now the code needed to handle the exception needs to be added 
+4. Create the code that handles the event of a record not existing
+    - at the top of the file (`views.py`), import `Http404` from `django.http`
+        - `from django.http import Http404`
+    - then, back in the `ProfileDetail` class, add an `except` statement to the `try` statement.
+        - this is structured like `if`/`else`
+        - the `except`ion should handle the event of `Profile.DoesNotExist`
+        - the action it takes in this event is to `raise` a call to `Http404`
+        -   ```py
+            class ProfileDetail(APIView):
+                def get_object(self, pk):
+                    try:
+                        profile = Profile.objects.get(pk=pk)
+                        return profile
+                    except Profile.DoesNotExist:
+                        raise Http404
+            ```
+5. now that the records have been checked to make sure the profile exists, the queried profile now needs to be serialized:
+    - beneath the `get_object` request, write a new `get` request that takes `self`, the `request`, and `pk` (primary key) as arguments
+    - create a variable called `profile` with the value being the `get_object` function declared above, being called on it`self`, taking the `pk` as the argument
+        - `profile = self.get_object(pk)`
+    - create a variable called `serializer`, its value should be a call to the [`ProfileSerializer`](#rest-framework-serializers) with the `profile` variable as its argument
+        - > unlike in `ProfileList` No need to pass in many=True, as unlike last time, we’re dealing with a single profile model instance and not a queryset.
+    - with the profile now serialized, return it in the `Response` for the `get` request:
+    -   ```py
+        class ProfileDetail(APIView):
+            def get_object(self, pk):
+                try:
+                    profile = Profile.objects.get(pk=pk)
+                    return profile
+                except Profile.DoesNotExist:
+                    raise Http404
+            
+            def get(self, request, pk):
+                profile = self.get_object(pk)
+                serializer = ProfileSerializer(profile)
+                return Response(serializer.data)
+        ```
+6. test that this code is working by adding the `DetailView` to the `urlpatterns` in `urls.py`:
+    - under the list view, add a new `path` that takes the arguments of:
+        - the path for the url as a string value that calls the the `profiles` path, but then in `<>` the `pk` as an `int`eger, suffixed with a `/`
+            - `'profiles/<int:pk>/'`
+        - the `ProfileDetail` view from `views` as a view, using `as_view()`
+            - `views.ProfileDetail.as_view()`
+    -   ```py
+        urlpatterns = [
+            path('profiles/', views.ProfileList.as_view()),
+            path('profiles/<int:pk>/', views.ProfileDetail.as_view())
+        ]
+        ```
+    - run the app to see if it all works.
+        - `python3 manage.py runserver`
+
+
+#### Updating an existing profile
+process:
+1. fetch the profile by it's id
+    - > First, we’ll have to retrieve the  profile using the get_object method. 
+2. call the serializer with the profile and request data
+    - > Next, we’ll have to call our serializer with that instance and data that’s being sent in the request.
+3. if data is valid, save and return the instance
+    - > Then, we’ll call .is_valid on our serializer, just like we would on a form, to make sure the data is valid. If it is, we’ll save the updated profile to the database and return it in the Response. In case it isn’t, we’ll have to return a 400 BAD REQUEST error.
+
+steps:
+1. inside the `profileDetail` class in `views.py`, define a `put` request that takes `self`, the `request` and the `pk` (PrimaryKey) as arguments
+    - define the `profile` variable again like in the `get` request, where the variable's value is running the `get_object` function on it`self`, taking the `pk` as an argument
+    - define the serializer variable again using the `ProfileSerializer` as its value, this time though, it should take 2 arguments:
+        - `profile`
+        - `data=request.data` which is taking the form data from the request passed in
+    - now check `if` the value of `serializer` `is_valid()`, with an `if statement`, if it is, `save()` `serializer`
+    - `return` a `Response` with the parameter of the `serializer`'s `data`
+    - instead of an `else` statement, add a `return` statement in place of an `else` statement, which `return`s a `Response` with 2 arguments:
+        1. any `errors` created by the `serializer`
+        2. a `status` parameter imported from `rest_framework`, that has the value of `status.HTTP_400_BAD_REQUEST`
+            - be sure to - `from rest_framework import status` - at the top of `views.py`
+    -   ```py
+        def put(self, request, pk):
+            profile = self.get_object(pk)
+            serializer = ProfileSerializer(profile, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        ```
+
+> Ok, that's all! Let’s make sure our new  view is working! If we go to ‘profiles/id/’, we’ll see PUT among the allowed HTTP methods.  We’ll also have a text area in which we could write raw JSON to update the profile. But wouldn’t it be better to have a nice form instead?
+
+2. make the newly created form in the ProfileDetail view contextual by setting the `serializer_class` to `ProfileSerializer` in the `ProfileDetail` class, as the first line under the class definition:
+    - this tells the `APIView` template being used by `ProfileDetail` to follow the field structure of the `ProfileSerializer` for its forms
+    -   ```py
+        class ProfileDetail(APIView):
+            # establish the form structure for the data
+            serializer_class = ProfileSerializer
+
+            def get_object(self, pk):
+                """
+                the function that checks the validity
+                of a profile request, returns an error if
+                invalid
+                """
+                try:
+                    profile = Profile.objects.get(pk=pk)
+                    return profile
+                except Profile.DoesNotExist:
+                    raise Http404
+            def get(self, request, pk):
+                """
+                uses the function above to get a profile by id
+                serializes it using the ProfileSerializer
+                """
+                profile = self.get_object(pk)
+                serializer = ProfileSerializer(profile)
+                return Response(serializer.data)
+
+            def put(self, request, pk):
+                """
+                updates a retreived profile with data receieved
+                from a request via a form contextualised by
+                serializer_class at the top of this view
+                handles BAD_REQUEST errors too
+                """
+                profile = self.get_object(pk)
+                serializer = ProfileSerializer(profile, data=request.data)
+                if serializer.is_valid():
+                    serializer.save()
+                    return Response(serializer.data)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        ```
