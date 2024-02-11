@@ -8,10 +8,17 @@
 - install cloudinary to handle static files
 - install Pillow to handle image processing
 
+### [2. Commit 2:](#commit-2)
+- add a profiles app
+- use django signals
+    - signals explained
+- create a superuser
+- display a model on the admin panel
+
 
 <hr>
 
-### Commit 1
+## Commit 1
 
 1. create a new repo on [github](www.github.com)
 - or, use the Codeinstitute full template: [https://github.com/Code-Institute-Org/ci-full-template](https://github.com/Code-Institute-Org/ci-full-template)
@@ -106,3 +113,112 @@ INSTALLED_APPS = [
     'cloudinary'
 ]
 ```
+
+<br>
+<hr>
+
+## Commit 2
+
+1. create the new app with the `startapp` command:
+    - `python3 manage.py startapp profiles`
+        - (`python3 manage.py startapp YOUR_APP_NAME_HERE`)
+2. with the new app created, it also needs to be included in `INSTALLED_APPS` in `settings.py`:
+    -   ```py
+        INSTALLED_APPS = [
+            'django.contrib.admin',
+            'django.contrib.auth',
+            'django.contrib.contenttypes',
+            'django.contrib.sessions',
+            'django.contrib.messages',
+            'cloudinary_storage',
+            'django.contrib.staticfiles',
+            'cloudinary',
+            'profiles'
+        ]
+        ```
+3. now, in the newly created `models.py` inside `profiles.py` add a new import at the top of the file:
+    - `from django.contrib.auth.models import User`
+4. next, inside `models.py` create the first new database model:
+    -   ```py
+        class Profile(models.Model):
+            owner = models.OneToOneField(User, on_delete=models.CASCADE)
+            created_at = models.DateTimeField(auto_now_add=True)
+            updated_at = models.DateTimeField(auto_now=True)
+            name = models.CharField(max_length=255, blank=True)
+            content = models.TextField(blank=True)
+            image = models.ImageField(
+                upload_to='images/' default='../samples/landscapes/girl-urban-view'
+            )
+
+            class Meta:
+                ordering = ['-created_at']
+            
+            def __str__(self):
+                return f"{self.owner}'s profile"
+        ```
+
+##### django signals
+
+- event notifications
+    > You can think of signals as notifications that get triggered by an event.
+- can listen to the events and run a piece of code every time
+    > We can listen for such Model events and have some code, usually a function, run each time that signal is received.
+- we'd like to create a user profile every time a user is created
+    > In our case, we would want to be notified when a user is created so that a profile can automatically be created alongside it. 
+- built-in model signals:
+    - pre save: `pre_save`
+    - post save: `post_save`
+    - pre delete: `pre_delete`
+    - post delete `post_delete`
+
+to implement:
+1. import the `post_save` signal from `django.db.models.signals` at the top of `models.py`
+    - `from django.db.models.signals import post_save`
+2. now, beneath the `Profile` class model, add a call to `post_save`appended with the `.connect()` function, passing 2 arguments:
+    - the first argument will be `create_profile`, which is the function that needs to be run every time a post is saved. 
+    - the second is going to be specifiying who/what is the sender of the new data, in this case, it will be the `User` 
+    - `post_save.connect(create_profile, sender=User)`
+3. now, above this call, define the `create_profile` function:
+    - the function has to take 4 arguments: `(sender, intance, created, **kwargs)`
+    - set a conditional statement that if a profile is created, the owner of the profile should be that `User`
+    - the function should look like this:
+    -   ```py
+        def create_profile(sender, instance, created, **kwargs):
+                    # Because we are passing this function 
+                    # to the post_save.connect method
+                    # it requires the following arguments:
+                    # 1. the sender model,
+                    # 2. its instance
+                    # 3. created  - which is a boolean value of 
+                    #    whether or not the instance has just been created
+                    # 4. and kwargs.  
+                    if created:
+                        # if created is True, we’ll create a profile  
+                        # whose owner is going to be that user.
+                        Profile.objects.create(owner=instance)
+                
+        # not part of the function, but this would be sitting
+        # directly under it
+        post_save.connect(create_profile, sender=User)
+        ```
+        > now every time a user is created, a signal will trigger the Profile model to be created.
+4. register the `Profile` model in `admin.py` so that it will show up in the admin panel
+    - `admin.site.register(Profile)`
+5. before going any further, migrate the new model into the database in the CLI:
+    - `python3 manage.py makemigrations`
+    - `python3 manage.py migrate`
+6. now, to view the model on the admin panel:
+    - first create a superuser/admin
+        - `python3 manage.py createsuperuser`
+        - create a username and password from the command prompts
+        - no need to supply an email address
+7. run the server and go to admin and see if everything is working:
+    - `python3 manage.py runserver`
+    - append `/admin` to the url in the browser window and login with the admin credentials
+    - be sure to add the workspcae url as an `ALLOWED_HOST` in `settings.py`
+
+> Now, if we run our server, and go to /admin, we see that our first user was created. And their corresponding profile was created with a working image, well done!
+
+8. finally, create a file containing the new project's dependencies via the CLI
+    - `pip freeze > requirements.txt`
+9. push the changes to github

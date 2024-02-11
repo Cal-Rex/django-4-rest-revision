@@ -32,7 +32,7 @@ SECRET_KEY = 'NO_SECRET_KEY_YET_LOL'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['8000-calrex-django4restrevis-otmuorvdndx.ws-eu108.gitpod.io']
 
 
 # Application definition
@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'cloudinary_storage',
     'django.contrib.staticfiles',
-    'cloudinary'
+    'cloudinary',
+    'profiles',
 ]
 
 MIDDLEWARE = [
