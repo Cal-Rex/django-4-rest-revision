@@ -30,6 +30,12 @@
 - adding authentication / logging in and out
 - adding custom authentication and restrictions to data
 
+### [6. Commit 6:](#commit-6)
+- create the post app
+    - create the model
+    - create the list view
+    - create the serializer
+- add authentication and ability to post as an authenticated user
 
 <hr>
 
@@ -883,3 +889,312 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 <br>
 <hr>
+
+## Commit 6
+
+### Creating a new App
+run the command in the terminal to make a new app, name it `posts`
+    - `python3 manage.py startapp posts`
+
+### Creating a post model
+1. in `posts/models.py` import the following:
+    - `models` from `django.db`
+    - `User` from `django.contrib.auth.models`
+    ```py
+    from django.db import models
+    from django.contrib.auth.models import User
+    ```
+
+2. create a class called `Post`, it should inherit from `models.Model`
+3. the new `Post` class needs the following fields:
+    - owner, which should be a `ForeignKey` using the `User` as its value, it should also `CASCADE` delete any related sub-items if deleted
+    - created_at, which should be a `DateTimeField` which should be automatically assigned a new value upon record creation by using the parameter `auto_now_add=True`
+    - updated_at, same as above, except its paramater is `auto_now=True`, not `auto_add_now` as it updates every time the post is edited, not when it is `add`ed
+    - title, should be a `CharField` with a `max_length`
+    - content, should be a `TextField` to house post content, it should be `blank` initially
+    - image, which should be an `ImageField`. 
+        - upon a successful upload, the image should be `upload`ed`_to` `'images/'` 
+        - it should also have a default value from the cloudinary database using a static filepath
+        - it should also be `blank` on the form
+4. add a `Meta` class that orders posts by the `DateTime` they were `created_at`, with the most recent entry being first
+5. define a dunder `str` methos that returns a python `f` string that contains the `id` and `title` of each post through the use of `this`
+
+the post model should look like this:
+```py
+from django.db import models
+from django.contrib.auth.models import User
+
+
+class Post(models.Model):
+    """
+    Post model, related to 'owner', i.e. a User instance.
+    Default image set so that we can always reference image.url.
+    """
+    owner = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    title = models.CharField(max_length=255)
+    content = models.TextField(blank=True)
+    image = models.ImageField(
+        upload_to='images/', default='../samples/landscapes/girl-urban-view', blank=True
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.id} {self.title}'
+```
+
+6. Migrate the completed model into the database
+    1. `python3 manage.py makemigrations`
+    2. `python3 manage.py migrate`
+
+
+### creating a serializer
+
+1. create a new file in `posts` called `serializers.py`
+2. inside the new `serailizers` import:
+    - `serializers` from `rest_framework`
+    - the `Post` model from `.models`
+3. create a class called `PostSerializer` which inherits from `serializers.ModelSerializer`
+4. establish the following serailizer fields:
+    - owner: a `ReadOnlyField` that's `source` is the `username` of the `owner` specified in the `Post` model
+    - profile_id: a `ReadOnlyField` that's `source` is the `id` of the `owner` specified in the `Post` model (`id`'s are automatically created by django)
+    - profile_image: a `ReadOnlyField` that's `source` is the `url` of the `image` field beonging to the `owner`, specified in the `Post` model
+    - is_owner: a variable which houses the `SerializerMethodField` for the `serializer`
+5. use the `is_owner` field to create a method (prefix it with `get_`) with the following parameters: `self` and `obj` for object in question
+    - the function should then take a `context`ual `request` from whatever calls it (`this`), and then checks if the `user` that made the `request` matches the `obj`'s `owner`, `return`ing a voolean value depending on the outcome
+6. add a `Meta` class that:
+    - determines the `model` the serializer its basing its structure from, n this case it is `Post`
+    - determine the `fields` it serializes and displays in a list variable as strings, they should be:
+        - id
+        - owner
+        - created_at
+        - updated_at
+        - title
+        - content
+        - image
+
+finished serializer shuold look like this:
+```py
+from rest_framework import serializers
+from .models import Post
+
+class PostSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    profile_id = serializers.ReadOnlyField(source='owner.id')
+    profile_image = serializers.ReadOnlyField(source='owner.image.url')
+    is_owner = serializers.SerializerMethodField()
+        # this variable above is used to house 
+        # the requisite serializer it is called 
+        # as a function below by prefixing the variable's 
+        # name with 'get_'
+    
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    class Meta:
+        model = Post
+        fields = [
+            'id',
+            'owner',
+            'profile_id',
+            'profile_image',
+            'created_at',
+            'updated_at',
+            'title',
+            'content',
+            'image',
+            'image_filter',
+            'is_owner',
+        ]
+```
+
+## Creating the PostList View
+##### https://youtu.be/BIaoKcYvr_M
+
+
+overview:
+- create the PostList view and write two methods 
+    1. ‘get’, to list all posts
+    2. ‘post’ to create a user post
+
+
+### Creating the PostList view
+1. go to `posts/views.py`
+2. import the following:
+    -   ```py
+        from django.shortcuts import render
+        from rest_framework import status
+        from rest_framework.response import Response
+        from rest_framework.views import APIView
+        from .models import Post
+        from .serializers import PostSerializer
+        ```
+3. create the `PostList` class, it should inherit from `APIView`
+
+### define the get method to list all posts
+1. `def`ine the `get` method, which whould take 2 arguments: `self` and `request`
+2. inside the `get` request, create a variable called `posts` that retrieves `all()` `objects` from `Post`
+3. create the `serializer` variable that houses the `PostSerializer` established in `serializers.py`. pass it:
+    - the `posts` variable
+    - the `many` parameter, set to `True`
+    - `context`, which has a {K: V} Pair of K: `'request'` V: `request`
+4. have the function `return` a `response`, its parameter being the serialized `data` of the `serializer` variable
+    ```py
+    from django.shortcuts import render
+    from rest_framework import status
+    from rest_framework.response import Response
+    from rest_framework.views import APIView
+    from .models import Post
+    from .serializers import PostSerializer
+
+
+    class PostList(APIView):
+        def get(self, request):
+            posts = Post.objects.all()
+            serializer = PostSerializer(
+                posts,
+                many=True,
+                context={'request': request}
+            )
+            return Response(serializer.data)
+    ```
+
+5. create a new `urls.py` file in the `posts` app
+    - import:
+        - `path` from `django.urls`
+        - `views` from `posts` (`views.py` from the posts app)
+    - create the `urlpatterns` list.
+        - add a `path` for `'posts/'` that takes `Postlist` from `views` `as_view()`
+
+    ```py
+    from django.urls import path
+    from posts import views
+
+    urlpatterns = [
+        path('posts/', views.PostList.as_view()),
+    ]
+    ```
+6. in `drf_api/urls.py` `include` the `urls` from `posts`
+    ```py
+    from django.contrib import admin
+    from django.urls import path, include
+
+    urlpatterns = [
+        path('admin/', admin.site.urls),
+        path('api-auth/', include('rest_framework.urls')),
+        path('', include('profiles.urls')),
+        path('', include('posts.urls')),
+    ]
+    ```
+7. run the server, check the get request works so far (add /posts/ to the browser window url)
+
+### Define the Post Method
+
+> To actually have posts appear, we have to make it possible for our users to create them. To achieve that, we have to define the post method inside the PostList view.
+
+the `post` method needs to achieve the following:
+1. deserialize request data
+2. if the data is valid, save the post with the user as the owner
+3. return the post with the 201 CREATED code
+4. if the data is invalid, return the ERROR: 400 BAD REQUEST code
+
+steps:
+1. in the `PostList` class in `posts/views.py`, `def`ine the `post` method, passing it in the arguments of `self` and `request`:
+2. inside the `post` method, create the `serializer` variable, its value being the `PostSerializer`, which will in-turn, handle the following parameters:
+    - `data`, which will have the value of `data` from the `request`
+    - `context`, which has a {K: V} Pair of K: `'request'` V: `request`
+3. inside the function, below the `serializer`, write an `if` statement that checks if the `serializer` `is_valid()`
+    - if it is, make the `serializer` `save()` the post, passing a parameter to `save()` that defines the `owner` of the post to be the `user` that made the `request`
+    - then, close the `if` statement by `return`ing a `Response` that contains the `data` from `serializer` and a `status` that has a value of `HTTP_201_CREATED` from `status` codes
+4. below the `if` statement, in lieu of an `else` statement, `return` a `Response` that takes any `errors` raised by `serializer` and pass a `status` of `HTTP_400_BAD_REQUEST` from `status`
+5. > To have a nice create post form rendered in the preview window, let’s also set the serializer_class attribute to PostSerializer on our PostList class.
+    - at the top of the class, add a variable called `serializer_class`, its value should be `PostSerializer`
+
+```py
+from django.shortcuts import render
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Post
+from .serializers import PostSerializer
+
+
+class PostList(APIView):
+    serializer_class = PostSerializer
+
+    def get(self, request):
+        posts = Post.objects.all()
+        serializer = PostSerializer(
+            posts,
+            many=True,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = PostSerializer(
+            data=request.data, context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save(owner=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+```
+
+the Post List view has now been created, however, at this point, if an unauthenticated user tries to create a post, django will throw an error. 
+
+this can be mitigated using the `permissions` framwork from rest
+
+6. add `permissions` as an import from `rest_framework` at the top of `views.py`
+7. at the top of the `PostList` class, below the `serializer_classes` variable, add the `permission_classes` list variable, giving it a single entry in the list of:
+    - `permissions.IsAuthenticatedOrReadOnly`
+
+```py
+from django.shortcuts import render
+from rest_framework import status, permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Post
+from .serializers import PostSerializer
+
+
+class PostList(APIView):
+    serializer_class = PostSerializer
+    permission_classes = [
+        permissions.IsAuthenticatedOrReadOnly
+    ]
+
+    def get(self, request):
+        posts = Post.objects.all()
+        serializer = PostSerializer(
+            posts,
+            many=True,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = PostSerializer(
+            data=request.data, context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save(owner=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+```
+
+go back to the preview and check it all works.
+
+<br>
+<hr>
+
+## Commit 7:
