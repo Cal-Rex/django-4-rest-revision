@@ -37,6 +37,14 @@
     - create the serializer
 - add authentication and ability to post as an authenticated user
 
+### [7. Commit 7:](#commit-7)
+- create the PostDetail view
+- retrieve a record by id (get)
+- update a record by id (put)
+- delete a record by id (delete)
+
+### [8. Commit 8:]
+
 <hr>
 
 ## Commit 1
@@ -1198,3 +1206,186 @@ go back to the preview and check it all works.
 <hr>
 
 ## Commit 7:
+
+this section covers:
+- create the PostDetail view
+- retrieve a record by id (get)
+- update a record by id (put)
+- delete a record by id (delete)
+
+Post CRUD Table:
+> Let’s have a look at our CRUD table. It shows what kind of HTTP request our users have to make and to which URL in order to list all posts, create, read, update or delete a post. 
+
+| HTTP           | URI           | CRUD Operation                                                                   | View Name         |
+| :------------: | :-----------: | :------------------------------------------------------------------------------: | :---------------: |
+| **a**.GET / **b**.POST | /posts     | **a**.list all posts / **b**.create a post                         | LIST              |
+| **c**.GET / **d**.PUT / **e**.DELETE | /posts/:id | **c**.retrieve a post by id / **d**.update a post by id / **e**.delete a post by id | DETAIL           |
+
+### Create the PostDetail view
+steps:
+1. go to `posts/views.py`, start by importing the following:
+    - `from django.Http import Http404`
+    - the custom made permission `IsOwnerOrReadOnly` from `permissions.py` in `drf_api`
+        - `from drf_api.permissions import IsOwnerOrReadOnly` 
+2. create a new class called `PostDetail` that inherits from `APIView`
+3. add the `permission_classes`, there should only be one in the list for now, the `IsOwnerOrReadOnly` permission
+    - `permission_classes = [IsOwnerOrReadOnly]`
+4. To format the edit form right out the gate, add the `serializer_class` too, which will be `PostSerializer`
+    - `serializer_class = PostSerializer`
+
+#### `get` request
+5. write the `get_object` method for the view, it should take `self` and `pk` as arguments
+    - add in a `try` statement which creates a variable called `post` which `get`s an `object` from `Post` that has a `pk` that matches the `pk` passed in as the argument for the method
+        -`post = Post.objects.get(pk=pk)`
+    - then, check the permissions of the post and if the accessing user has permission to edit it by using `check_object_permissions` on the instance(`this`), passing it the arguments of `self.request` and the `post` variable
+        - `self.check_object_permissions(self.request, post)`
+    - `return` the `post` variable
+    - then, add an `except`ion for in the event that a `Post` `DoesNotExist`, in which case, the `Http404` error should be `raise`d
+6. now, ceate the actual `get` method of the view, passing it `self`, `request` and `pk` as arguments
+    - create a variable called `post` that uses the just-defined `get_object` method on the instance thats calling it (`self`) and pass it an argument containing the `pk`
+    - beneath that, add a `serailizer` variable that takes the `PostSerializer` and runs the newly-defined `post` variable through it as a parameter, in addition to a `context` parameter with a {Key: Value}Pair of `'request': request`
+    - `return` a `Response` containing the `data` from the `serializer`
+
+    ```py
+    from django.shortcuts import render
+    from django.http import Http404
+    from rest_framework import status, permissions
+    from rest_framework.response import Response
+    from rest_framework.views import APIView
+    from .models import Post
+    from .serializers import PostSerializer
+    from drf_api.permissions import IsOwnerOrReadOnly
+
+    ...
+
+    class PostDetail(APIView):
+        permission_classes = [
+            IsOwnerOrReadOnly
+        ]
+        serializer_class = PostSerializer
+
+        def get_object(self, pk):
+            try:
+                post = Post.objects.get(pk=pk)
+                self.check_object_permissions(self.request, post)
+                return post
+            except Post.DoesNotExist:
+                raise Http404
+        
+        def get(self, request, pk):
+            post = self.get_object(pk)
+            serializer = PostSerializer(
+                post,
+                context={'request': request}
+            )
+            return Response(serializer.data)
+    ```
+
+7. now, add the path for the new view in `posts/urls.py`:
+    - in `urlpatterns` add a new `path` for `posts/<int:pk>`, where the `PostDetail` from views is rendered `as_` a `view()`
+
+    ```py
+    from django.urls import path
+    from posts import views
+
+    urlpatterns = [
+        path('posts/', views.PostList.as_view()),
+        path('posts/<int:pk>/', views.PostDetail.as_view()),
+    ]
+    ```
+
+#### `put` request
+more detailed explanation on how to do this in the [profile](#updating-an-existing-profile), **although be sure to add `context` to the `serializer` as it isn't done in that part of the tutorial yet**
+
+8.  ```py
+    def put(self, request, pk):
+        post = self.get_object(pk)
+        serializer = PostSerializer(
+            post, data=request.data, context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(
+            serializer.errors, status=status.HTTP_400_BAD_REQUEST
+        )
+    ```
+
+#### `delete` request
+
+9. in the class, `def`ine a `delete` method that takes `self`, `request` and `pk` as parameters
+    - define the `post` variable and give it a value using the `get_object` method on the instance(`this`) by using the `pk`
+        - `post = self.get_object(pk)`
+    - run the `delete()` action on the `post` variable
+        - `post.delete()`
+    - `return` a `Response` containing a `status` parameter with the value of `HTTP_204_NO_CONTENT` from `status`
+        - `return Response(status=status.HTTP_204_NO_CONTENT)`
+
+    ```py
+    def delete(self, request, pk):
+        post = self.get_object(pk)
+        post.delete()
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+    ```
+10. check it all works
+
+finished view code:
+
+```py
+from django.shortcuts import render
+from django.http import Http404
+from rest_framework import status, permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Post
+from .serializers import PostSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
+
+...
+
+class PostDetail(APIView):
+    permission_classes = [
+        IsOwnerOrReadOnly
+    ]
+    serializer_class = PostSerializer
+
+    def get_object(self, pk):
+        try:
+            post = Post.objects.get(pk=pk)
+            self.check_object_permissions(self.request, post)
+            return post
+        except Post.DoesNotExist:
+            raise Http404
+    
+    def get(self, request, pk):
+        post = self.get_object(pk)
+        serializer = PostSerializer(
+            post,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        post = self.get_object(pk)
+        serializer = PostSerializer(
+            post, data=request.data, context={'request': request}
+        )
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(
+            serializer.errors, status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    def delete(self, request, pk):
+        post = self.get_object(pk)
+        post.delete()
+        return Response(
+            status=status.HTTP_204_NO_CONTENT
+        )
+```
+<br>
+<hr>
+
