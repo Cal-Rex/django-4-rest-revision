@@ -43,7 +43,11 @@
 - update a record by id (put)
 - delete a record by id (delete)
 
-### [8. Commit 8:]
+### [8. Commit 8:](#commit-8)
+- setting up the entire comments app using previous methods
+- views made using generic views instead
+
+### [9. Commit 9:](#commit-9)
 
 <hr>
 
@@ -1389,3 +1393,297 @@ class PostDetail(APIView):
 <br>
 <hr>
 
+## Commit 8:
+
+## Setting up the Comments App resources
+##### [challenge page](https://learn.codeinstitute.net/courses/course-v1:CodeInstitute+DRF+2021_T1/courseware/601b5665c57540519a2335bfbcb46d93/10d957d204794dbf9a4410792a58f8eb/?child=first)
+
+1. run the command in the terminal to make a new app, name it `comments`
+    - `python3 manage.py startapp comments`
+2. add it to `INSTALLED_APPS` in settings.py
+
+### Creating a comments model
+1. in `comments/models.py` import the following:
+    - `models` from `django.db`
+    - `User` from `django.contrib.auth.models`
+    - `Post` from `posts.models`
+    ```py
+    from django.db import models
+    from django.contrib.auth.models import User
+    from posts.models import Post
+    ```
+
+2. create a class called `Comment`, it should inherit from `models.Model`
+3. the new `Comment` class needs the following fields:
+    - owner, which should be a `ForeignKey` using the `User` as its value, it should also `CASCADE` delete any related sub-items if deleted
+    - post, which should be a `ForeignKey` using the `Post` as its value, it should also `CASCADE` delete any related sub-items if deleted
+    - created_at, which should be a `DateTimeField` which should be automatically assigned a new value upon record creation by using the parameter `auto_now_add=True`
+    - updated_at, same as above, except its paramater is `auto_now=True`, not `auto_add_now` as it updates every time the post is edited, not when it is `add`ed
+    - content, should be a `TextField` to house post content
+   
+4. add a `Meta` class that orders posts by the `DateTime` they were `created_at`, with the most recent entry being first
+5. define a dunder `str` method that returns the `content` of `self`
+
+the post model should look like this:
+```py
+from django.db import models
+from django.contrib.auth.models import User
+from posts.models import Post
+
+
+class Comment(models.Model):
+    """
+    Comment model, related to User and Post
+    """
+    owner = models.ForeignKey(User, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    content = models.TextField()
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.content
+```
+
+6. Migrate the completed model into the database
+    1. `python3 manage.py makemigrations`
+    2. `python3 manage.py migrate`
+
+
+### creating the comment serializer
+
+1. create a new file in `comments` called `serializers.py`
+2. inside the new `serailizers` import:
+    - `serializers` from `rest_framework`
+    - the `Comment` model from `.models`
+3. create a class called `CommentSerializer` which inherits from `serializers.ModelSerializer`
+4. establish the following serailizer fields:
+    - owner: a `ReadOnlyField` that's `source` is the `username` of the `owner` specified in the `Comment` model
+    - profile_id: a `ReadOnlyField` that's `source` is the `id` of the `owner` specified in the `Comment` model (`id`'s are automatically created by django)
+    - profile_image: a `ReadOnlyField` that's `source` is the `url` of the `image` field beonging to the `owner`, specified in the `Comment` model
+    - is_owner: a variable which houses the `SerializerMethodField` for the `serializer`
+5. use the `is_owner` field to create a method (prefix it with `get_`) with the following parameters: `self` and `obj` for object in question
+    - the function should then take a `context`ual `request` from whatever calls it (`this`), and then checks if the `user` that made the `request` matches the `obj`'s `owner`, `return`ing a boolean value depending on the outcome
+6. add a `Meta` class that:
+    - determines the `model` the serializer its basing its structure from, n this case it is `Comment`
+    - determine the `fields` it serializes and displays in a list variable as strings, they should be:
+        - id
+        - owner
+        - profile_id
+        - profile_image
+        - post
+        - created_at
+        - updated_at
+        - content
+        - is_owner
+
+finished serializer shuold look like this:
+```py
+from rest_framework import serializers
+from .models import Comment
+
+class CommentSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    profile_id = serializers.ReadOnlyField(source='owner.id')
+    profile_image = serializers.ReadOnlyField(source='owner.image.url')
+    is_owner = serializers.SerializerMethodField()
+        # this variable above is used to house 
+        # the requisite serializer it is called 
+        # as a function below by prefixing the variable's 
+        # name with 'get_'
+    
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    class Meta:
+        model = Comment
+        fields = [
+            'id',
+            'owner',
+            'profile_id',
+            'profile_image',
+            'created_at',
+            'updated_at',
+            'post',
+            'content',
+            'is_owner',
+        ]
+```
+
+___________________________________________________________
+
+## Creating the CommentDetailSerializer
+#### Creating a Serializer that inherits from another
+
+1. in `comments/serializers.py`, create a new class called `CommentDetailSerializer`. make it inherit from the previously created `CommentSerializer` class
+2. give it a variable of `post`: a `ReadOnlyField` that's `source` is the `id` of the `post` specified in the `Comment` model
+
+```py
+class CommentDetailSerializer(CommentSerializer):
+    post = serializers.ReadOnlyField(source='post.id')
+```
+> Because CommentDetailSerializer inherits from CommentSerializer, all its methods and attributes are already included e.g. Meta.
+
+___________________________________________________________
+
+## CommentList and CommentDetail generic views
+##### https://youtu.be/Xw6qDGQSbqs
+##### [more info on Generics](https://www.django-rest-framework.org/api-guide/generic-views/#attributes/)
+##### [more info on filtering](https://www.django-rest-framework.org/api-guide/filtering/)
+
+how to write `CommentList` and `Detail` views using generics.
+
+> The Django Documentation states that generic views were developed as a shortcut for common usage patterns. What this means is that we can achieve all the same functionality of the get, post, put and other class based view methods without having to repeat ourselves so much.
+
+steps:
+1. go to `views.py` in the `comments` app. 
+2. import the following:
+    - `generics` from `rest_framework`
+    - `IsOwnerOrReadOnly` from `permissions` in `drf_api`
+    - `Comment` from `.models`
+    - `CommentSerializer` and `CommentDetailSerializer` from `.serializers`
+
+#### Create the CommentList View
+
+3. create a class called `CommentList` that inherits from `generics.ListCreateAPIView`
+    - > As we want to both [list] and [create] comments in the ListView, instead of explicitly defining the post and get methods like we did before, I’ll extend generics’ [List][Create]APIView. Extending the [List]APIView means we won’t have to write the get method and the [Create]APIView takes care of the post method.
+    - **list** covers the get request
+    - **create** covers the post request
+4. set the `serailizer_class` to `CommentSerializer`
+5. set the `permission_classes` to `[permissions.IsAuthenticatedOrReadOnly]`
+6. Add a queryset variable that `get`s `all()` the `objects` in the `Comment` table
+    - > Instead of specifying only the model we’d like  to use, in DRF we set the queryset attribute. This way, it is possible to filter  out some of the model instances. This would make sense if we were  dealing with user sensitive data like orders or payments where we would need to  make sure users can access and query only their own data. In this case however, we want all the  comments.
+    - [**Learn more about attribute and data filtering here**](https://www.django-rest-framework.org/api-guide/filtering/)
+
+code so far:
+
+    ```py
+    from rest_framework import generics, permissions
+    from drf_api.permissions import IsOwnerOrReadOnly
+    from .models import Comment
+    from .serializers import CommentSerializer, CommentDetailSerializer
+
+    class CommentList(generics.ListCreateAPIView):  # step 3
+        serializer_class = CommentSerializer  # step 4
+        permission_classes = [permissions.IsAuthenticatedOrReadOnly]  # step 5
+        queryset = Comment.objects.all()  # step 6
+    ```
+> Before we test the view, we’ll have to make sure comments are associated with a user upon creation. We do this with generics by defining the perform_create method
+
+7. `def`ine a method called `perform_create` which takes the arguments of `self` and `serializer`
+    - > the `perform_create` method takes in `self` and `serializer` as arguments. Inside, we pass in the user making the request as owner into the serializer’s save method, just like we did in the regular class based views.
+8. call the `save()` command on the `serializer`, in the argument of `save` define the `owner` as the `user` making the `request`
+    - views using generics:
+        ```py 
+        from rest_framework import generics, permissions
+        from drf_api.permissions import IsOwnerOrReadOnly
+        from .models import Comment
+        from .serializers import CommentSerializer, CommentDetailSerializer
+
+        class CommentList(generics.ListCreateAPIView):  # step 3
+            serializer_class = CommentSerializer  # step 4
+            permission_classes = [permissions.IsAuthenticatedOrReadOnly]  # step 5
+            queryset = Comment.objects.all()  # step 6
+
+            def perform_create(self, serializer):  # step 7
+                serializer.save(owner=self.request.user)  #step 8
+        ```
+    - views manually written equivalent:
+        ```py
+        class PostList(APIView):
+            serializer_class = PostSerializer
+            permission_classes = [
+                permissions.IsAuthenticatedOrReadOnly
+            ]
+
+            def get(self, request):
+                posts = Post.objects.all()
+                serializer = PostSerializer(
+                    posts,
+                    many=True,
+                    context={'request': request}
+                )
+                return Response(serializer.data)
+
+            def post(self, request):
+                serializer = PostSerializer(
+                    data=request.data, context={'request': request}
+                )
+                if serializer.is_valid():
+                    serializer.save(owner=request.user)
+                    return Response(serializer.data, status=status.HTTP_201_CREATED)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        ```
+
+    > More good news is that with generics, the request  is a part of the context object by default. What this means is that we no longer have to pass it manually,  like we did in the regular class based views.
+
+9. now, create the `urls` for the comments. create the `urls.py` file in the `comments app`
+10. import the following into `comments/urls.py`:
+    - `from django.urls import path`
+    - `from comments import views`
+11. next, create the `urlpatterns` list beneath the imports, it should contain the following paths:
+    - `'comments/'` which should take the `CommentList` `view` and render it `as_view()`
+
+```py
+urlpatterns = [
+    path('comments/', views.CommentList.as_view()),
+]
+```
+
+12. then, in `drf_api/urls` add the `'comments.urls'` to a `path` by using the `include` method
+    ```py
+    from django.contrib import admin
+    from django.urls import path, include
+
+    urlpatterns = [
+        path('admin/', admin.site.urls),
+        path('api-auth/', include('rest_framework.urls')),
+        path('', include('profiles.urls')),
+        path('', include('posts.urls')),
+        path('', include('comments.urls')),  # step 12
+    ]
+    ```
+
+#### create the CommentDetail view
+
+13. go back to `comments/views` and create a class called `CommentDetail` and have it inherit from `generics.RetrieveUpdateDestroyAPIView`
+    - from generics, the following methods are pulled in the inherited model name to automatically streamline the coding for the following types of requests:
+        - `Retrieve` data
+        - `Update` data
+        - `Destroy` data
+        - jump back up [here](#create-the-commentlist-view) for a fuller explanataion
+        - [documentation on generics](https://www.django-rest-framework.org/api-guide/generic-views/#attributes/)
+14. set the `permission_classes` list of the new class to the imported `[IsOwnerOrReadOnly]` permission
+15. set the `serializer_class` for the class to `CommentDetailSerializer`
+    - > Our serializer still needs to access the request, but as mentioned before, we don’t really need to do anything, as the request is passed in as part of the context object by default.
+16. define the `queryset` for the class, querying `all()` the `objects` in the `Comment` table
+
+```py
+class CommentDetail(generics.RetrieveUpdateDestroyAPIView):  # step 13
+    permission_classes = [IsOwnerOrReadOnly]  # step 14
+    serializer_class = CommentDetailSerializer  # step 15
+    queryset = Comment.objects.all()  # step 16
+```
+
+17. with the class created, head back to `comments/urls.py` and add a new path to the `urlpatterns` list, this time it should be for `comments/<int:pk>/`, (<int:pk>: the primary key is being told to be handled as an integeter). It should render the `CommentDetail` `view` `as_view()`
+
+```py
+urlpatterns = [
+    path('comments/', views.CommentList.as_view()),
+    path('comments/<int:pk>', views.CommentDetail.as_view()),  # step 17
+]
+```
+
+<br>
+<hr>
+
+## Commit 9:
