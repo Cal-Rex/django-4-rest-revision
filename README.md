@@ -55,6 +55,10 @@
 - creating the entire followers app using previous methods
 
 ### [11. Commit 11:](#commit-11)
+- refactor the posts and profiles views
+
+### [12. Commit 12](#commit-12)
+- 
 
 <hr>
 
@@ -2130,3 +2134,18 @@ class FollowerDetail(generics.RetrieveDestroyAPIView):
 <hr>
 
 ## Commit 11:
+
+- refactor the profiles and posts views to use generics
+- all the information in the previous sections should be sufficient to complete this task
+
+if yo get stuck, here are the solution links:
+- profiles:
+    `https://github.com/Code-Institute-Solutions/drf-api/blob/23b93337ab45903140ea01232474e9fbcad4f015/profiles/views.py`
+- posts:
+    - `https://github.com/Code-Institute-Solutions/drf-api/blob/23b93337ab45903140ea01232474e9fbcad4f015/posts/views.py`
+    - mind that the posts views still requires a `perform_create` function to bind the posting User's primary Key to the new post
+
+<br>
+<hr>
+
+## Commit 12:
