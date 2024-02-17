@@ -1,10 +1,11 @@
 from django.shortcuts import render
 # from rest_framework.views import APIView # obsolete when using the generics import below
-from rest_framework import generics
+from rest_framework import generics, filters
 from rest_framework.response import Response
 from .models import Profile
 from .serializers import ProfileSerializer
 from drf_api.permissions import IsOwnerOrReadOnly
+from django.db.models import Count
 
 # Create your views here.
 class ProfileList(generics.ListAPIView):
@@ -12,7 +13,19 @@ class ProfileList(generics.ListAPIView):
     stored in the db"""
     serializer_class = ProfileSerializer
         # serializes the update form
-    queryset = Profile.objects.all()
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+        followers_count=Count('owner__followed', distinct=True),
+        following_count=Count('owner__following', distinct=True),
+    ).order_by('-created_at')
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = [
+        'posts_count',
+        'followed_count',
+        'following_count',
+        'owner__followed__created_at',
+        'owner__following__created_at',
+        ]
 
     # manual view method if using the APIView view from rest framework
     # def get(self, request):

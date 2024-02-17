@@ -61,6 +61,14 @@
 - adding axtra fields to posts and profiles, Part 1
 
 ### [13. Commit 13](#commit-13)
+- creating link to multiple entries on a single entry on a seperate table using the ManyToMany Field
+
+### [14. Commit 14](#commit-14)
+- adding extra fields to the posts and profiles, part 2
+    - adding custom filters
+    - additional related data display methods outside of the serializer
+
+### [15. Commit 15](#commit-15)
 
 <hr>
 
@@ -2320,3 +2328,227 @@ class PostSerializer(serializers.ModelSerializer):
 <hr>
 
 ## Commit 13:
+
+using the ManyToMany field to link multiple entries in one table to a single entry in another
+
+1. create an app called publications that contains the following fields:
+    - title (charfield)
+- completed model should look like this:
+```py
+from django.db import models
+
+# Create your models here.
+class Publication(models.Model):
+    title = models.CharField(max_length=250)
+
+    class Meta:
+        ordering = ['title']
+
+    def __str__(self):
+        return f"publication {self.pk}: {self.title}"
+```
+- make sure to add it to `INSTALLED_APPS` in **settings.py**
+- also create list and detail views using generics
+- create a serializer to serialize the data into JSON
+- register the model in the apps **admin.py**
+- link everything up in a urls.py in the app and then include those urls in the drf_api app
+
+2. repeat the above process for an articles app. here is the model:
+```py
+from django.db import models
+from publications.models import Publication
+
+# Create your models here.
+class Article(models.Model):
+    headline = models.CharField(max_length=250)
+    publications = models.ManyToManyField(Publication)
+
+    class Meta:
+        ordering = ['headline']
+
+    def __str__(self):
+        return f"{self.headline}"
+```
+
+test it all works. in the rpeview go to the admin panel and see that under the articles model you can select multiple publications to be associated with that article
+
+## Commit 14:
+
+# Adding Extra fields to Posts and Profiles part 2
+##### https://youtu.be/Eoi411is464
+
+- adding a number of posts a user has made to their profile
+- adding a count of the followers a user has
+- adding a count for the number of profiles a user is following
+- using the annotate function
+- make fields sortable with filters
+
+
+1. got to `views.py` in the `profiles` app
+
+### adding a number of posts a user has made to their profile
+
+2. make a new import at the top of the file:
+    - `from django.db.models import Count`
+3. add `filters` to imports from `rest_framework`
+    - `from rest_framework import generics, filters`
+4. in the `ProfileList` class, amend the `queryset` variable - instead of using `.all()` on the `Profile.objects`, use `.annotate()` function
+    - > The annotate function allows  us to define extra fields to be added to the queryset. In our case, we’ll add fields to work  out how many posts and followers a user has, and how many other users they’re following.
+    - inside the `annotate` function, pass in the following:
+        - `posts_count` which will be equal to the `Count()` class imported in step 2
+            - > what we’re trying to achieve here is to count the number of posts associated with a specific Profile. 
+            
+              > however, there is no direct relationship between Profile and Post. So we need to go through the User model to get there. 
+              
+              > So, inside the Count class, we will need to perform a lookup that spans the profile, user, and post models, so we can get to the Post model with the instances we want to count.
+            - `posts_count=Count('owner__post', distinct=True)`
+              > Similar to when we used dot notation, the first part of our lookup string is the owner field on the Profile model,  which is a OneToOne field referencing User. From there we can reach the  Post model. So we have to add ‘double underscore post’ to show the relationship between Profile, User and Post.
+
+              >  we also need to pass distinct=True here to only count the unique posts. Without this we would get duplicates.
+            - [more info on double underscore method and `distinct`](https://docs.djangoproject.com/en/3.2/topics/db/queries/#lookups-that-span-relationships)
+    
+    ```py
+    class ProfileList(generics.ListAPIView):
+    """
+    List all profiles.
+    No create view as profile creation is handled by django signals.
+    """
+    serializer_class = ProfileSerializer
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+    )
+
+    ```
+
+### adding a count of the followers a user has
+
+5. inside the queryset, beneath the `posts_count` parameter, add a `followers_count` parameter that also uses the `Count()` method
+    - > This time we have a problem. Within the Follower model, we have two foreign keys that are referencing the User model. One to identify the User following another user and the other to identify the one being followed. 
+
+      > So here, we need to use the related_names “following” and “followed” defined in followers’  models.py file, instead of the model name like we did for owner__post. The  string value then, will be ‘owner__followed’.  
+    - inside the `Count()` method of `followers_count`, use the double underscore notation (`__`) on owner to connect to the `followed` field of the `Follower` model by its related name of `followed` (this may be the same as the variable name, but remember, this is the value its using to connect the fields, NOT the variable name)
+        - `followers_count=Count('owner__followed', distinct=True),`
+    
+
+    ```py
+    class ProfileList(generics.ListAPIView):
+    """
+    List all profiles.
+    No create view as profile creation is handled by django signals.
+    """
+    serializer_class = ProfileSerializer
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+        followers_count=Count('owner__followed', distinct=True),
+    )
+
+    ```
+
+### adding a count for the number of profiles a user is following
+
+6. repeat step 5 for the to count the amount of profiles a user is `following`, it should work the exact same way as `followers_count` as the `following` variable in the `Follower` model has a related name of `following`
+7. with all 3 paramters added, `order` the `queryset` values `by` they date they were `created_at` in reverse. 
+
+    ```py
+    class ProfileList(generics.ListAPIView):
+    """
+    List all profiles.
+    No create view as profile creation is handled by django signals.
+    """
+    serializer_class = ProfileSerializer
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+        followers_count=Count('owner__followed', distinct=True),
+        following_count=Count('owner__following', distinct=True),
+    ).order_by('-created_at')
+
+    ```
+
+### make fields sortable with filters
+
+8. after the `queryset` variable, set a new variable called `filter_backends`, which contains a list value with one entry of `filters.OrderingFilter` (taken from the `filters` import)
+    - `filter_backends = [filters.OrderingFilter]`
+
+9. now, after that, create another variable called `ordering_fields` which contains a list of the fields counted in the `annotate` method of the `queryset` above
+    - `ordering_fields = ['posts_count', 'followed_count', 'following_count']`
+10. > I’d also like to be able to sort our profiles by how recently they followed a profile and by how recently they have been followed by a profile.
+    - in the `ordering_fields` list, add the `owner__followers` and `owner__following` like in the count methods, except this time, append them with `created_at` with `__`
+    -   ```py
+        class ProfileList(generics.ListAPIView):
+            """
+            List all profiles.
+            No create view as profile creation is handled by django signals.
+            """
+            serializer_class = ProfileSerializer
+            queryset = Profile.objects.annotate(
+                posts_count=Count('owner__post', distinct=True),
+                followers_count=Count('owner__followed', distinct=True),
+                following_count=Count('owner__following', distinct=True),
+            ).order_by('-created_at')
+            ordering_fields = [
+                'post_count',
+                'followed_count',
+                'following_count',
+                'owner__followed__created_at',
+                'owner__following__created_at'
+            ]
+        ```
+    > As these are regular database fields, I don’t need to add them to the queryset, but I still have to add them to the ordering_fields list.
+
+11. To make sure these new ordering/ordered fields can be viewed, they need to be passed into the serializer:
+
+```py
+from rest_framework import serializers
+from .models import Profile
+from followers.models import Follower
+
+class ProfileSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    is_owner = serializers.SerializerMethodField()
+    following_id = serializers.SerializerMethodField()
+    posts_count = serializers.ReadOnlyField()
+    followers_count = serializers.ReadOnlyField()
+    following_count = serializers.ReadOnlyField()
+
+
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    def get_following_id(self, obj):
+        user = self.context['request'].user
+        if user.is_authenticated:
+            following = Follower.objects.filter(
+                owner=user, followed=obj.owner
+            ).first()
+            print(following)
+            return following.id if following else None
+        return None
+
+    class Meta:
+        model = Profile
+        fields = [
+            'id',
+            'owner',
+            'created_at',
+            'updated_at',
+            'name',
+            'content',
+            'image',
+            'is_owner',
+            'following_id',
+            'posts_count',
+            'followed_count',
+            'following_count',
+        ]
+```
+
+<br>
+<hr>
+
+## Commit 15:
