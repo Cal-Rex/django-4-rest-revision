@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import UniqueConstraint
 from django.contrib.auth.models import User
 from posts.models import Post
-from comments.models import Comment
+# from comments.models import Comment # might be needed later?
 
 # Create your models here.
 class Like(models.Model):
