@@ -58,7 +58,9 @@
 - refactor the posts and profiles views
 
 ### [12. Commit 12](#commit-12)
-- 
+- adding axtra fields to posts and profiles, Part 1
+
+### [13. Commit 13](#commit-13)
 
 <hr>
 
@@ -2149,3 +2151,172 @@ if yo get stuck, here are the solution links:
 <hr>
 
 ## Commit 12:
+
+## Adding extra Fields to Profiles and Post Apps
+##### https://youtu.be/H3vYRGaq_4I
+
+- adding an extra field to the profile serializer to include whether or not a logged in user has followed another user. 
+    - basically, whenever a user follows another user, the Follower table updates with a record with a value of 
+        - the owner (the person who made the follow)
+        - and the followed (the profile the user followed.)
+  any time a follow is made by any user, a new record is created with these values. These values are regulated as unique by the serializer from the previous lessons.
+  this lesson updates the `ProfileSerializer` to - when an authenticated user logs in - filter through the `Follower` table and return records that are owned by that user, as this is an iterative process, it will do it for every record in the Table, meaning that is a list is generated, it will return a value for each record. 
+  In this instance, the serializer will return the id of the follow. 
+  the serializer will also use an `if` statement to check that a user is authenticated, if they are not, the filter for follows will not run, restulting in returning a `null` value for each record. 
+
+
+1. go to `profiles/serializers.py/ProfileSerializer` and import the `Follower` model
+    - `from followers.models import Follower`
+2. then, inside the `ProfileSerializer` add a new variable called `following_id`. it should have the same value as `is_owner`, the variable above it, so that it creates a new field in the serializer.
+3. `def`ine a new method called `get_following_id`, which calls the `get_` prefix on the new SerializerMethodField just created. ([more about the `get_` prefix here](#adding-custom-fields-depending-on-the-authentication-of-the-user-using-a-serializer)).
+    - pass it arguments of `self` and `obj`
+4. inside the new method, create a variable called `user`, its value should be the `user` from the `['request']` of the `context` of the `self` argument that had been passed in as an argument. 
+    - `user = self.context['request'].user`
+    - > Inside, I’ll get the current user from the context object and check if the user is authenticated.
+5. add a conditional stateent to the function that, `if` the `user` `.is_authenticated`:
+    - > Then I will check if the logged in user is following any of the other profiles.  
+    - create a variable called `following`, assign it the value of the `objects` of the `Follower` table `filter`ed by: 
+        - `owner`, where the value is the authenticated `user`
+        - `followed`, where the value is the `owner` of the `obj` parameter passed in at the top of the function 
+    - append the value with `.first()` so that it will only return the one value any time it runs.
+6. add a print statement into the function to check its working correctly
+7. then, at the end of the `if` statement, `return` the `id` of the newly established `following` variable from inside the `if` statement, appending an additional `if` statement onto it in the `return` statement to double check if following is `truthy` (has a value), else the statement will `return`` the value of `None`
+    - `return following.id if following else None`
+8. in lieu of an `else` statement on the outer `if` statement, provide a `return` statement that returns `None` in the event that the user is not authenticated
+
+
+Finished code:
+```py
+from rest_framework import serializers
+from .models import Profile
+from followers.models import Follower
+
+class ProfileSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    is_owner = serializers.SerializerMethodField()
+    following_id = serializers.SerializerMethodField()
+
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    # new function
+    def get_following_id(self, obj):
+        user = self.context['request'].user
+        if user.is_authenticated:
+            following = Follower.objects.filter(
+                owner=user, followed=obj.owner
+            ).first()
+            # print("FOLLOWING!!!!!!!!!!!!!!!!: ", following)
+            return following.id if following else None
+        return None
+
+    class Meta:
+        model = Profile
+        fields = [
+            'id',
+            'owner',
+            'created_at',
+            'updated_at',
+            'name',
+            'content',
+            'image',
+            'is_owner',
+            'following_id',  # new field
+        ]
+```
+
+### adding the like_id field onto Posts with PostSerializer
+
+as this theoretically works the exact same way is follows does with profiles, copy the steps above to achieve the same outcome for posts and likes:
+
+ed result code following above method:
+
+```py 
+class PostSerializer(serializers.ModelSerializer):
+    owner = serializers.ReadOnlyField(source='owner.username')
+    profile_id = serializers.ReadOnlyField(source='owner.id')
+    profile_image = serializers.ReadOnlyField(source='owner.image.url')
+    is_owner = serializers.SerializerMethodField()
+        # this variable above is used to house 
+        # the requisite serializer it is called 
+        # as a function below by prefixing the variable's 
+        # name with 'get_'
+    like_id = serializers.SerializerMethodField()
+        # newly added variable to run the serializer
+        # to get an id of a like associated with the post 
+        # and the authenticated user
+
+    
+    def get_is_owner(self, obj):
+        """
+        passes the request of a user into the serializer
+        from views.py
+        to check if the user is the owner of a record
+        """
+        request = self.context['request']
+        return request.user == obj.owner
+
+    def get_like_id(self, obj):
+        # the like_id variable is prefixed with get_ to run
+        # a specific method type
+        user = self.context['request'].user
+        # the user variable gets the user that 
+        # prompted the method to run
+        if user.is_authenticated:
+            # checks if the user is authenticated 
+            # if they are:
+            liked = Like.objects.filter(owner=user, post=obj).first()
+                # the liked variable runs on each entry in Post
+                # and checks is a user is the owner of a like for that post
+            print(liked)
+                # just a print statement to check its all kushty in the CLI
+            return liked.id if liked else None
+                # for each entry, the serializer will return the id of the like
+                # created for that post by that authenticated user
+                # if the user hasnt made one, the method will return a "None" value
+        return None
+            # skip to end if user isnt authenticated and return "None" for all Posts
+    
+    def validate_image(self, value):
+        if value.size > 1024 * 1024 * 2:
+            raise serializers.ValidationError(
+                'Image size larger than 2MB!'
+            )
+        if value.image.width > 4096:
+            raise serializers.ValidationError(
+                'Image wider than 4096 pixels!'
+            )
+        if value.image.height > 4096:
+            raise serializers.ValidationError(
+                'Image taller than 4096 pixels!'
+            )
+        return value
+
+    class Meta:
+        model = Post
+        fields = [
+            'id',
+            'owner',
+            'profile_id',
+            'profile_image',
+            'created_at',
+            'updated_at',
+            'title',
+            'content',
+            'image',
+            'image_filter',
+            'is_owner',
+            'like_id',  # and don't forget to add the field!
+        ]
+```
+
+<br>
+<hr>
+
+## Commit 13:
