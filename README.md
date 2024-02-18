@@ -73,6 +73,10 @@
 - use previously used methods to create comments and likes counts on a post entry
 
 ### [16. Commit 16](#commit-16)
+- adding a search feature to an api app (posts, in this case)
+
+
+### [17. Commit 17](#commit-17)
 
 <hr>
 
@@ -2621,3 +2625,81 @@ In posts/views.py:
 <hr>
 
 ## Commit 16:
+
+## adding a search feature to the API
+##### https://youtu.be/_GmXX51kvtY
+
+- create text search for Posts, search either by Author's username or port title
+- how to implement text search feature on a view
+
+
+1. inside `posts`' `views.py` file, in the `PostList` class:
+    - add another filter to the `filter_backends` list called `filters.SearchFilter`
+    - now, create a new variable called `search_fields` that takes a list of values to search by. in this case it will be `owner__username` to get the owner of a post and `title` for the title of the post
+2. run the environment, see if it works. search field should be in the filter button
+
+```py
+from django.db.models import Count
+from django.shortcuts import render
+from django.http import Http404
+from rest_framework import status, permissions, generics, filters
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Post
+from .serializers import PostSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
+
+class PostList(generics.ListCreateAPIView):
+    """
+    List posts or create a post if logged in
+    The perform_create method associates the post with the logged in user.
+    """
+    serializer_class = PostSerializer
+    permission_classes = [
+        permissions.IsAuthenticatedOrReadOnly
+    ]
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+
+    ).order_by('created_at')
+    filter_backends = [
+        filters.OrderingFilter,
+        filters.SearchFilter  # new filter added here
+    ]
+    ordering_fields = [
+        'comments_count',
+        'likes_count',
+        'likes__created_at',
+    ]
+    search_fields = [  # new variable for search fields added here
+        'owner__username',
+        'title',
+    ]
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+class PostDetail(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve a post and edit or delete it if you own it.
+    """
+    serializer_class = PostSerializer
+    permission_classes = [IsOwnerOrReadOnly]
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+
+    ).order_by('created_at')
+    filter_backends = [
+        filters.OrderingFilter
+    ]
+    ordering_fields = [
+        'comments_count',
+        'likes_count',
+        'likes__created_at',
+    ]
+
+```
+
+## Commit 17:
