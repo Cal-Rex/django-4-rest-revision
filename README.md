@@ -69,6 +69,10 @@
     - additional related data display methods outside of the serializer
 
 ### [15. Commit 15](#commit-15)
+- create additional fields for the posts app
+- use previously used methods to create comments and likes counts on a post entry
+
+### [16. Commit 16](#commit-16)
 
 <hr>
 
@@ -2552,3 +2556,68 @@ class ProfileSerializer(serializers.ModelSerializer):
 <hr>
 
 ## Commit 15:
+
+If we look at a post retrieved from our API, we don’t have any information about the number of comments or likes the post has. As a challenge, I’d like to ask you to add two new fields to retrieved posts for:
+
+1. comments_count
+2. likes_count
+
+All of these fields will need to be added to the queryset
+
+2. Product Spec
+Now, your challenge is to create the Post fields and Post filters, here’s the spec:
+
+Creating your Post Fields
+- In post/views.py, in the PostList class, adjust the queryset to include the following fields:
+    1. comments_count
+    2. likes_count
+- Order the fields by created_at
+- In posts/serializers.py:
+    1. Define both comments_count and likes_count as ReadOnly fields in the PostSerializer
+    2. Include them both in the fields list
+
+Adding Fields to the Filter
+- In post/views.py, within the PostList class, create the filter so that you can filter by
+    1. comments_count
+    2. likes_count
+    3. likes__created_at
+
+Adding fields to the PostDetail class
+- Adjust the PostDetail queryset to include the following fields:
+    1. comments_count
+    2. likes_count
+- Order the fields by created_at
+
+
+steps:
+
+Part 1: Creating your PostList Fields
+In posts/views.py:
+1. Add the required import.
+2. In the PostList class, adjust the queryset attribute:
+    - Use the annotate function.
+    - Define the comments_count field which should Count the number of comments which are distinct.
+    - Define the likes_count field which should Count the number of likes that are distinct.
+    - Order the annotated fields by how recent Posts are with the most recently created ones first.
+In posts/serializer.py
+1. Define both comments_count and likes_count as ReadOnly fields in the PostSerializer.
+2. Include them both in the fields list.
+
+Part 2: Adding Fields to the Filter
+In posts/views.py:
+1. Add the required import.
+2. Create the filter_backends list, to use OrderingFilter.
+3. Add the ordering_fields list, to filter by the appropriate fields.
+4. Make sure to add a filter to allow you to sort posts by how recently they've been liked.
+
+Part 3: Adding fields to the PostDetail class
+In posts/views.py:
+2. In the PostDetail class, copy and paste the PostList queryset into the PostDetail class (removing the existing queryset code).
+3. Your new queryset should contain 2 fields: comments_count, likes_count
+
+**[Solution Code](https://github.com/Code-Institute-Solutions/drf-api/tree/a7033eacc714c79df49679fbebd455e300e09d95)**
+
+<br>
+<hr>
+
+## Commit 16:

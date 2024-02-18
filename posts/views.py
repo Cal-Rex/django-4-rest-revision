@@ -1,10 +1,12 @@
 from django.shortcuts import render
-from rest_framework import permissions, generics #, status # obsolete when using generics
+from rest_framework import permissions, generics, filters #, status # obsolete when using generics
 from rest_framework.response import Response
+from django.db.models import Count
+from drf_api.permissions import IsOwnerOrReadOnly
 # from rest_framework.views import APIView # obsolete when using generics
 from .models import Post
 from .serializers import PostSerializer
-from drf_api.permissions import IsOwnerOrReadOnly
+
 
 # Create your views here.
 
@@ -13,7 +15,17 @@ class PostList(generics.ListCreateAPIView):
     permission_classes = [
         permissions.IsAuthenticatedOrReadOnly
     ]
-    queryset = Post.objects.all()
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+    ).order_by('-created_at')
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = [
+        'comments_count'
+        'likes_count'
+        'likes__created_at'
+    ]
+
 
     # this function needs to be added to bind a new post to a user /
     # assign a User key value to the "owner" field in the db
@@ -46,7 +58,10 @@ class PostDetail(generics.RetrieveUpdateDestroyAPIView):
         IsOwnerOrReadOnly
     ]
     serializer_class = PostSerializer
-    queryset = Post.objects.all()
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+    ).order_by('-created_at')
 
     # manual functions used if the APIView template is used
     # def get_object(self, pk):

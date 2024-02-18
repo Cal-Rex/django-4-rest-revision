@@ -2,10 +2,11 @@ from django.shortcuts import render
 # from rest_framework.views import APIView # obsolete when using the generics import below
 from rest_framework import generics, filters
 from rest_framework.response import Response
+from django.db.models import Count
+from drf_api.permissions import IsOwnerOrReadOnly
 from .models import Profile
 from .serializers import ProfileSerializer
-from drf_api.permissions import IsOwnerOrReadOnly
-from django.db.models import Count
+
 
 # Create your views here.
 class ProfileList(generics.ListAPIView):
