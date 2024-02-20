@@ -1,7 +1,8 @@
 from django.shortcuts import render
+from django.db.models import Count
 from rest_framework import permissions, generics, filters #, status # obsolete when using generics
 from rest_framework.response import Response
-from django.db.models import Count
+from django_filters.rest_framework import DjangoFilterBackend # says it can't import but it does
 from drf_api.permissions import IsOwnerOrReadOnly
 # from rest_framework.views import APIView # obsolete when using generics
 from .models import Post
@@ -19,12 +20,24 @@ class PostList(generics.ListCreateAPIView):
         comments_count=Count('comment', distinct=True),
         likes_count=Count('likes', distinct=True)
     ).order_by('-created_at')
-    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    filter_backends = [
+        filters.OrderingFilter,
+        filters.SearchFilter,
+        DjangoFilterBackend
+    ]
+    filterset_fields = [
+        # user feed of followed users
+        'owner__followed__owner__profile',
+        # user liked posts
+        'likes__owner__profile',
+        # user posts
+        'owner__profile'
+    ]
     search_fields = ['owner__username', 'title']
     ordering_fields = [
-        'comments_count'
-        'likes_count'
-        'likes__created_at'
+        'comments_count',
+        'likes_count',
+        'likes__created_at',
     ]
 
 

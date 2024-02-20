@@ -75,8 +75,17 @@
 ### [16. Commit 16](#commit-16)
 - adding a search feature to an api app (posts, in this case)
 
-
 ### [17. Commit 17](#commit-17)
+- add a filter feature to filter the API data
+    - posts owned by a user
+    - posts liked by a user
+    - posts by another user that a user us following
+    - filter user list of accounts a user is following
+- using django_filters library
+
+### [18. Commit 18](#commit-18)
+
+
 
 <hr>
 
@@ -2703,3 +2712,344 @@ class PostDetail(generics.RetrieveUpdateDestroyAPIView):
 ```
 
 ## Commit 17:
+
+## Adding the filter feature to our API
+##### https://youtu.be/Xx6JmpgN0qs
+
+- add a filter feature to filter the API data
+    - posts owned by a user
+    - posts liked by a user
+    - posts by another user that a user us following
+    - filter user list of accounts a user is following
+- using django_filters library
+
+**this section was a bit much trying to understand the traversal of tables, so rewatch the video from 1.52**
+
+
+### using django_filters
+
+to use filtering methods in this section, the project first needs to have the `django_filters` library installed. install it via the CLI using the following command:
+- `pip3 install django-filter`
+
+then, include it in `INSTALLED_APPS` in `settings.py` as `django_filters`
+
+**then, update requirements.txt**: `pip3 freeze > requirements.txt`
+
+to then use `django_filters`, the following import needs to be made on any file wanting to use the library:
+- `from django_filters.rest_framework import DjangoFilterBackend`
+
+### add a filter feature to posts:
+
+in the `views.py` of the `posts` app: 
+
+1. import django filters
+    - `from django_filters.rest_framework import DjangoFilterBackend`
+2. inside the `PostList` view, add `DjangoFilterBackend` to the `filter_backends` list variable
+3. create a variable called `filterset_fields` which is a list
+    - > To get the user post feed by their profile id, we’ll have to take the following steps: 
+    
+    > First, we'll have to find out who owns each post in the database. Next, we'll need to see if a post owner is being followed by a specific user. Finally, we'll need to point to that user's profile so that we can use its id to filter our results. 
+    
+    > Similar to using dot notation from previous sections, we'll have to figure out how to navigate our tables.
+
+#### posts by another user that a user us following
+
+4. to filter posts by another user that a user if following, add the followingvalue to the `filerset_fields` list:
+    - refenrence the `owner` of the post, which will give access to the `User` table, 
+    - this gives access to referencing the `Follower` table by using the `followed` `related_name`. the `Follower` table can now be queried to see if any entries that have a `followed` value equal to the `Post.owner` and if the person that owns that `followed` value is the accessing user (`owner`, as in `Follower.owner`), then, the accessing `owner`(`Follower.owner`)'s profile is called by using `profile`
+    - `'owner__followed__owner__profile'`
+    > Model instances can always be filtered by id,  so we don’t need to add “double underscore id”.
+
+#### posts liked by a user
+
+5. as `Post` and `Like` tables are linked by a related_name of `likes`, `likes` can be used to filter to the `owner` of the like, which is a `ForeignKey` linked to the `User` table, which is also linked to the `Profile` table by its own `owner` field
+    - `'likes__owner__profile'`
+
+#### posts owned by a user
+
+6. as `Post` is linked to `User` via the `owner` field, the `Profile` table can be accessed directly with double underscore notation
+    - `'owner__profile'`
+
+7. add these fields to `filterset_fields` should produce a result like this:
+
+```py
+from django.db.models import Count
+from django.shortcuts import render
+from django.http import Http404
+from django_filters.rest_framework import DjangoFilterBackend  # new filter import here
+from rest_framework import status, permissions, generics, filters
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from .models import Post
+from .serializers import PostSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
+
+class PostList(generics.ListCreateAPIView):
+    """
+    List posts or create a post if logged in
+    The perform_create method associates the post with the logged in user.
+    """
+    serializer_class = PostSerializer
+    permission_classes = [
+        permissions.IsAuthenticatedOrReadOnly
+    ]
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+
+    ).order_by('created_at')
+    filter_backends = [
+        filters.OrderingFilter,
+        filters.SearchFilter,
+        DjangoFilterBackend,  # new filter added here
+    ]
+    ordering_fields = [
+        'comments_count',
+        'likes_count',
+        'likes__created_at',
+    ]
+    search_fields = [
+        'owner__username',
+        'title',
+    ]
+    filterset_fields = [  # new fields added here
+        'owner__followed__owner__profile',
+        'likes__owner__profile',
+        'owner__profile',
+    ]
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+class PostDetail(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve a post and edit or delete it if you own it.
+    """
+    serializer_class = PostSerializer
+    permission_classes = [IsOwnerOrReadOnly]
+    queryset = Post.objects.annotate(
+        comments_count=Count('comment', distinct=True),
+        likes_count=Count('likes', distinct=True)
+
+    ).order_by('created_at')
+    filter_backends = [
+        filters.OrderingFilter
+    ]
+    ordering_fields = [
+        'comments_count',
+        'likes_count',
+        'likes__created_at',
+    ]
+```
+
+### filter user list of accounts a user is following
+
+> We'll be able to filter user profiles that  follow a user with a given profile_id.
+
+1. go to profiles > views, import `from django_filters.rest_framework import DjangoFilterBackend`
+2. add `DjangoFilterBackend` to the `filter_backends` list in `ProfileList`
+3. create the `filterset_fields` list variable:
+    - [watch the walkthrough video from 6.16 to go through the explanation of this with diagrams](https://youtu.be/Xx6JmpgN0qs)
+    - add the following filter: `'owner__following__followed__profile'`
+
+updated code:
+
+```py
+from django.db.models import Count
+from django.http import Http404
+from django.shortcuts import render
+from django_filters.rest_framework import DjangoFilterBackend  # new import added here
+from rest_framework import status, generics, permissions, filters
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import Profile
+from .serializers import ProfileSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
+
+
+class ProfileList(generics.ListAPIView):
+    """
+    List all profiles.
+    No create view as profile creation is handled by django signals.
+    """
+    serializer_class = ProfileSerializer
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+        followers_count=Count('owner__followed', distinct=True),
+        following_count=Count('owner__following', distinct=True),
+    ).order_by('-created_at')
+    filter_backends = [
+        filters.OrderingFilter,
+        DjangoFilterBackend,  #  new filter added here
+    ]
+    ordering_fields = [
+        'post_count',
+        'followed_count',
+        'following_count',
+        'owner__followed__created_at',
+        'owner__following__created_at',
+    ]
+    filterset_fields = [  # new field here
+        'owner__following__followed__profile',
+    ]
+
+
+class ProfileDetail(generics.RetrieveUpdateAPIView):
+    """
+    Retrieve or update a profile if you're the owner.
+    """
+    permission_classes = [IsOwnerOrReadOnly]
+    queryset = Profile.objects.all()
+    serializer_class = ProfileSerializer
+```
+## profile filter challenge
+
+- get a list of all of the accounts that follow a user
+- in short, it is like getting the accounts a user follows in reverse:
+    - `'owner__following__followed__profile'` filters the accounts that a user follows
+    - `'owner__followed__owner__profile`   
+
+Project Description
+In this challenge, you'll be required to simply add the correct string to the filterset_fields within your profiles/views.py file.
+
+You should first attempt to work out your answer by following the table below, before looking at the steps.
+
+Check the Hints for the correct answer when you are finished.
+
+2. Product Spec
+Now, your challenge is to add the string in the filterset_fields list in order to:
+
+get all profiles that are followed by a profile, given its id
+Use your existing filterset_fields list located within profiles/views.py
+
+3. Steps
+For example, in order to get all the profiles followed by Ronan, we’ll need to complete these steps:
+
+Identify the profile owner, in this case let's use Adam, from the database of all profiles.
+Identify if that profile owner is being followed by our main user, Ronan.
+If it is, identify the "following" profile owner id.
+If this id is Ronan's, the "followed" profile, Adam, will be displayed.
+
+This process will be repeated in order to filter all profiles in the database.
+
+walkthrough:
+1. Use the 'owner' field to return to the User table
+2. Identify that 'Adam' is being followed (by anyone) using the 'followed' field.
+3. Identify who that follower is, in this case Ronan, using the 'owner' field.
+4. The 'owner' is a ForeignKey field which will return us to the User table.
+5. Return the profile id value by linking to 'profile', ('profile' will return the 'id' value automatically').
+6. This value is then used by drf to filter our profiles, e.g. if id = 1 (Ronan) then display Adam's profile.
+
+```py
+from django.db.models import Count
+from django.http import Http404
+from django.shortcuts import render
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import status, generics, permissions, filters
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import Profile
+from .serializers import ProfileSerializer
+from drf_api.permissions import IsOwnerOrReadOnly
+
+
+class ProfileList(generics.ListAPIView):
+    """
+    List all profiles.
+    No create view as profile creation is handled by django signals.
+    """
+    serializer_class = ProfileSerializer
+    queryset = Profile.objects.annotate(
+        posts_count=Count('owner__post', distinct=True),
+        followers_count=Count('owner__followed', distinct=True),
+        following_count=Count('owner__following', distinct=True),
+    ).order_by('-created_at')
+    filter_backends = [
+        filters.OrderingFilter,
+        DjangoFilterBackend,
+    ]
+    ordering_fields = [
+        'post_count',
+        'followed_count',
+        'following_count',
+        'owner__followed__created_at',
+        'owner__following__created_at',
+    ]
+    filterset_fields = [
+        'owner__following__followed__profile',
+        'owner__followed__owner__profile',  # solution code here
+    ]
+
+
+class ProfileDetail(generics.RetrieveUpdateAPIView):
+    """
+    Retrieve or update a profile if you're the owner.
+    """
+    permission_classes = [IsOwnerOrReadOnly]
+    queryset = Profile.objects.all()
+    serializer_class = ProfileSerializer
+```
+
+
+## Comment Filter Challenge
+##### [challenge link](https://learn.codeinstitute.net/courses/course-v1:CodeInstitute+DRF+2021_T1/courseware/1ff333eb2a0644ef97769fe03f4afc30/b8a0cb61dda840bfbe0697e8dbcc0cd4/)
+
+- be able to retrieve all the comments associated with a given post.
+
+Project Description
+In this challenge, you'll need to repeat all the steps required to create a filter in Comments.
+
+Check the Hints for the correct answer when you are finished.
+
+2. Product Spec
+Now, your challenge is to create a filterset_field filter in Comments, in order to:
+
+be able to retrieve all the comments associated with a given post.
+
+3. Steps
+Follow the steps to complete the tasks:
+
+In Comments/views.py:
+- Import the correct filter type. In this case, DjangoFilterBackend.
+- Set the filter_backends attribute in the CommentsList view.
+- Set the filterset_fields attribute to a list containing one item to filter as stated above. (Hint: start off with an example, e.g. to return all comments for Post 1)
+
+because the `Comment` and `Post` tables are directly linked via foreign key, the filterset field can just be set to `'post'`
+
+```py
+from django.shortcuts import render
+from django_filters.rest_framework import DjangoFilterBackend  # new import here
+from rest_framework import generics, permissions, filters # filters imported here
+from drf_api.permissions import IsOwnerOrReadOnly
+from .models import Comment
+from .serializers import CommentSerializer, CommentDetailSerializer
+
+
+class CommentList(generics.ListCreateAPIView):  
+        serializer_class = CommentSerializer  
+        permission_classes = [permissions.IsAuthenticatedOrReadOnly]  
+        queryset = Comment.objects.all() 
+        filter_backends = [
+        DjangoFilterBackend,  #  new filter added here
+        ]
+        filterset_fields = [  # new field here
+        'post',
+    ]
+
+
+        def perform_create(self, serializer): 
+                serializer.save(owner=self.request.user)  
+
+
+class CommentDetail(generics.RetrieveUpdateDestroyAPIView): 
+    permission_classes = [IsOwnerOrReadOnly]  
+    serializer_class = CommentDetailSerializer  
+    queryset = Comment.objects.all()  
+```
+
+<br>
+<hr>
+
+## Commit 18:
+
