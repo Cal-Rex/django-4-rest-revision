@@ -84,6 +84,10 @@
 - using django_filters library
 
 ### [18. Commit 18](#commit-18)
+- implementing JWT Token authentication
+
+### [19. Commit 19](#commit-19)
+-
 
 
 
@@ -3053,3 +3057,137 @@ class CommentDetail(generics.RetrieveUpdateDestroyAPIView):
 
 ## Commit 18:
 
+## Using JWT tokens
+##### https://youtu.be/pWOQ9rS5-CA
+
+- using the django rest auth library
+- adding authentication to the project
+
+
+### using the django rest auth library
+1. install the django rest auth package: 
+    - Since this video was created, Django REST Auth has introduced a new version that will be automatically installed if you use the command in the video. To ensure that you get the version of dj-rest-auth that will work while following these videos, instead of the command pip3 install dj-rest-auth, please use this:
+    - `pip3 install dj-rest-auth==2.1.9`
+
+2. add `rest_framework.authtoken` and `dj_rest_auth` to `INTALLED_APPS` in `settings.py`
+
+3. add `dj-rest-auth/` in the main app `urls.py`, add an `include` to it that passes in `'dj_rest_auth.urls'`
+    ```py
+    from django.contrib import admin
+    from django.urls import path, include
+
+    urlpatterns = [
+        path('admin/', admin.site.urls),
+        path('api-auth/', include('rest_framework.urls')),
+        path('dj-rest-auth/', include('dj_rest_auth.urls')),
+        path('', include('profiles.urls')),
+        path('', include('posts.urls')),
+        path('', include('comments.urls')),
+        path('', include('likes.urls')),
+        path('', include('followers.urls')),
+    ]
+    ```
+
+4. as new apps have been installed, migrate the database
+
+### add user site registration
+
+5. install Django allAuth with the following install command: `pip3 install 'dj-rest-auth[with_social]'`
+
+6. Once that's installed, add these new apps to the `INSTALLED_APPS` list in `settings.py`
+    -   ```py
+        'django.contrib.sites',
+        'allauth',
+        'allauth.account',
+        'allauth.socialaccount',
+        'dj_rest_auth.registration',
+        ```
+
+7. below `INSTALLED_APPS` in `settings.py`, as a seperate variable called `SITE_ID` and give it the value of `1`
+    - `SITE_ID = 1`
+
+8. in the main `urls.py`, add the following path:
+    - `path('dj-rest-auth/registration/', include('dj_rest_auth.registration.urls'))`
+
+### implementing JWT Tokens
+
+> Because DRF doesn’t support JWT tokens for the browser interface out-of-the-box, we’ll need to use session authentication in development. And for Production we’ll use Tokens. This will allow us to continue to be able to log into our API as we work on it.
+
+- tokens not supported for the browsable API
+- django sessions should be used in development
+- tokens are to be used in production
+
+9. update `env.py` to contain `os.environ['DEV'] = '1'`
+
+10. install the following via the CLI: `pip3 install djangorestframework-simplejwt`
+
+11. in `settings.py`, add the following code to make the app run tokens or sessions authentication depending on the environment the app is running in
+    ```py
+    REST_FRAMEWORK = {
+        'DEFAULT_AUTHENTICATION_CLASSES': [(
+            'rest_framework.authentication.SessionAuthentication'
+            if 'DEV' in os.environ
+            else 'dj_rest_auth.jwt_auth.JWTCookieAuthentication'
+        )]
+    }
+    ```
+
+12. next, enable token authentication by adding another variable in `settings.py`:
+    - `REST_USE_JWT = True`
+13. also, make sure that the token authentication is sent over HTTPS only/is secure by adding this variable as well:
+    - `JWT_AUTH_SECURE = True`
+14. next, declare the names for the access and refresh tokens used by JWT framework by adding another 2 variables below the 2 above:
+    ```py
+    JWT_AUTH_COOKIE = 'my-app-auth'
+    JWT_AUTH_REFRESH_COOKIE = 'my-refresh-token'
+    ```
+
+### using the UserDetailSerializer
+
+> Great! Now we need to add the profile_id and profile_image to fields returned when requesting logged in user’s details. This way we’ll know which profile to link to and what image to show in the navigation bar for a logged in user.
+
+15. in the main app (`drf_api`) create a `serializers.py`
+16. inside it, paste in the following code:
+    ```py
+    from dj_rest_auth.serializers import UserDetailsSerializer
+    from rest_framework import serializers
+
+    class CurrentUserSerializer(UserDetailsSerializer):
+        profile_id = serializers.ReadOnlyField(source='profile.id')
+        profile_image = serializers.ReadOnlyField(source='profile.image.url')
+
+        class Meta(UserDetailsSerializer.Meta):
+            fields = UserDetailSerializer.Meta.fields + (
+                'profile_id', 'profile_image'
+            )
+    ```
+    > All we’re doing here is adding the profile_id and profile_image fields to the stock `UserDetailsSerializer`
+17. with the serializer created, head back to `settings.py` and add the following variable to overwrite the default serializer that handles user details:
+    -   ```py
+        REST_AUTH_SERIALIZERS = {
+            'USER_DETAILS_SERIALIZER': 'drf_api.serializers.CurrentUserSerializer'
+        }
+        ```
+18. with everything installed, run a migration again
+
+19. and with everything migrated, update the requirements.txt file
+    - `pip3 freeze > requirements.txt`
+
+> Ok, we’re finally finished setting up  JSON Web Token authentication for our app.
+
+### dj-rest-auth API Endpoints explained
+
+| Explanation | dj-rest-auth/ url | http | data                             | data received                         |
+| :---------- | :---------------: | :--: | :------------------------------: | :-----------------------------------: |
+| To register, our users will send a POST request to  ‘django rest auth register’ with their username, password and confirmed password. | registration/     | POST | username + password1 + password2 |                                       |
+| To log in, our users will send a POST  request to ‘login’ with their username and password. As mentioned, they will  be issued an access and refresh token. | login/            | POST | username + password              | access token + refresh token          |
+| To log out, our users will just  send a POST request to ‘logout’. | logout/           | POST |                                  |                                       |
+| To fetch user specific details, like  user_id, profile_id and profile_image,  
+we’ll make a GET request to ‘user’ | user/             | GET  | access token + refresh token     | username + profile_id + profile_image |
+| To refresh user access tokens,  
+we’ll make POST requests to token/refresh and get  a new one if the refresh token hasn’t expired. | token/refresh/    | POST | access token + refresh token     | (new)access token                     |
+
+<br>
+<hr>
+
+## Commit 19:
